@@ -16,7 +16,6 @@
 #![windows_subsystem = "windows"]
 
 use std::collections::HashMap;
-use std::os::windows::ffi::OsStrExt;
 use std::sync::{Mutex, OnceLock};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -35,18 +34,19 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CallNextHookEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
     DispatchMessageW, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-    LoadIconW, LoadImageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
-    SetWindowsHookExW, TrackPopupMenu, TranslateMessage, UnhookWindowsHookEx, HHOOK, HICON,
-    HMENU, IDI_APPLICATION, IMAGE_ICON, KBDLLHOOKSTRUCT, LR_DEFAULTSIZE, LR_LOADFROMFILE,
-    MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WH_KEYBOARD_LL, WINDOW_EX_STYLE,
-    WM_COMMAND, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_USER,
-    WNDCLASSW, WS_OVERLAPPED,
+    LoadIconW, PostQuitMessage, RegisterClassW, SetForegroundWindow, SetWindowsHookExW,
+    TrackPopupMenu, TranslateMessage, UnhookWindowsHookEx, HHOOK, HMENU, IDI_APPLICATION,
+    KBDLLHOOKSTRUCT, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WH_KEYBOARD_LL,
+    WINDOW_EX_STYLE, WM_COMMAND, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP, WM_RBUTTONUP,
+    WM_SYSKEYDOWN, WM_USER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 const LLKHF_INJECTED: u32 = 0x10;
 const WM_TRAYICON: u32 = WM_USER + 1;
 const IDM_EXIT: u32 = 1001;
 const TRAY_UID: u32 = 1;
+// build.rs 가 임베드한 ICON 리소스 ID (assets/icon.rc 의 `1 ICON ...`).
+const IDI_TRAY_ICON: u16 = 1;
 
 static STATES: OnceLock<Mutex<HashMap<u32, bool>>> = OnceLock::new();
 static HOOK: OnceLock<isize> = OnceLock::new();
@@ -158,47 +158,11 @@ unsafe fn show_context_menu(hwnd: HWND) {
     let _ = DestroyMenu(menu);
 }
 
-// `icon.ico` 후보 경로:
-//   1) exe 와 같은 디렉토리 (배포 시 권장 — exe 옆에 두고 함께 배포)
-//   2) <exe_dir>/../../assets/icon.ico (cargo 빌드 산출물 target/<profile>/ 에서 dev 실행 시)
-fn icon_candidate_paths() -> Vec<std::path::PathBuf> {
-    let mut v = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            v.push(dir.join("icon.ico"));
-            if let Some(repo) = dir.parent().and_then(|p| p.parent()) {
-                v.push(repo.join("assets").join("icon.ico"));
-            }
-        }
-    }
-    v
-}
-
-unsafe fn load_tray_icon() -> HICON {
-    for path in icon_candidate_paths() {
-        if !path.is_file() {
-            continue;
-        }
-        let mut path_w: Vec<u16> = path.as_os_str().encode_wide().collect();
-        path_w.push(0);
-        if let Ok(handle) = LoadImageW(
-            HINSTANCE::default(),
-            PCWSTR(path_w.as_ptr()),
-            IMAGE_ICON,
-            0,
-            0,
-            LR_LOADFROMFILE | LR_DEFAULTSIZE,
-        ) {
-            if !handle.0.is_null() {
-                return HICON(handle.0);
-            }
-        }
-    }
-    LoadIconW(HINSTANCE::default(), IDI_APPLICATION).unwrap_or_default()
-}
-
-unsafe fn add_tray(hwnd: HWND) {
-    let icon = load_tray_icon();
+unsafe fn add_tray(hwnd: HWND, hinst: HINSTANCE) {
+    // build.rs 가 임베드한 ICON 리소스를 우선 시도, 실패 시 시스템 기본 아이콘 폴백.
+    let icon = LoadIconW(hinst, PCWSTR(IDI_TRAY_ICON as usize as *const u16))
+        .or_else(|_| LoadIconW(HINSTANCE::default(), IDI_APPLICATION))
+        .unwrap_or_default();
     let mut nid: NOTIFYICONDATAW = std::mem::zeroed();
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
     nid.hWnd = hwnd;
@@ -277,7 +241,7 @@ fn main() -> windows::core::Result<()> {
             None,
         )?;
 
-        add_tray(hwnd);
+        add_tray(hwnd, hinst);
 
         let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), hinst, 0)?;
         let _ = HOOK.set(hook.0 as isize);

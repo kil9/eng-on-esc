@@ -35,13 +35,9 @@ target\release\esc-eng-ime.exe
 
 ### 트레이 아이콘 (icon.ico)
 
-전용 아이콘은 `assets/icon.ico` 에 들어 있다. 런타임에 다음 순서로 찾는다.
+전용 아이콘은 `assets/icon.ico` 에 들어 있고 빌드 시 `embed-resource` 로 exe 안에 임베드된다. 별도로 `.ico` 파일을 같이 배포할 필요 없이 `esc-eng-ime.exe` 단독으로 실행 가능하다.
 
-1. `esc-eng-ime.exe` 와 같은 폴더의 `icon.ico` (배포 시 권장)
-2. `<exe>/../../assets/icon.ico` (`target/release/` 안에서 실행 시 자동 발견)
-3. 둘 다 없으면 Windows 기본 응용프로그램 아이콘으로 폴백
-
-배포할 때는 `icon.ico` 를 `esc-eng-ime.exe` 와 같은 폴더에 함께 두면 된다. 아이콘을 새로 만들려면 PowerShell 에서:
+아이콘을 새로 그리고 싶다면 PowerShell 에서 아래를 실행해 `assets/icon.ico` 를 재생성한 뒤 `cargo build --release` 로 다시 빌드한다.
 
 ```powershell
 pwsh -File tools/generate-icon.ps1

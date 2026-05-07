@@ -1,0 +1,3 @@
+// Windows resource definitions.
+// 트레이 아이콘 — main.rs 가 ID 1 로 LoadIconW 한다.
+1 ICON "icon.ico"
