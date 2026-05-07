@@ -33,6 +33,20 @@ cargo run --release
 target\release\esc-eng-ime.exe
 ```
 
+### 트레이 아이콘 (icon.ico)
+
+전용 아이콘은 `assets/icon.ico` 에 들어 있다. 런타임에 다음 순서로 찾는다.
+
+1. `esc-eng-ime.exe` 와 같은 폴더의 `icon.ico` (배포 시 권장)
+2. `<exe>/../../assets/icon.ico` (`target/release/` 안에서 실행 시 자동 발견)
+3. 둘 다 없으면 Windows 기본 응용프로그램 아이콘으로 폴백
+
+배포할 때는 `icon.ico` 를 `esc-eng-ime.exe` 와 같은 폴더에 함께 두면 된다. 아이콘을 새로 만들려면 PowerShell 에서:
+
+```powershell
+pwsh -File tools/generate-icon.ps1
+```
+
 ### 자동 시작 (선택)
 
 시작 프로그램 폴더에 `.exe` 의 바로가기를 두면 부팅 시 자동 실행된다.
