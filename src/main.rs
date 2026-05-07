@@ -1,68 +1,87 @@
-// ESC 키를 누르면 한국어 IME를 무조건 영문 모드로 강제 전환.
+// ESC 키를 누르면 한국어 IME를 영문 모드로 강제 전환.
 // ESC 본래 동작(취소/닫기 등)은 그대로 통과시킴.
-// 트레이 아이콘에서 좌/우클릭으로 종료 메뉴를 띄울 수 있음.
+// 트레이 아이콘에서 좌/우클릭으로 종료 메뉴.
+//
+// IME 상태는 OS API에 의존하지 않고 자체 상태 머신으로 추적.
+// Windows IME 상태는 thread-local이므로 thread ID 별로 분리 추적:
+//  - 새로 만난 thread는 영문이라 가정
+//  - LL hook이 사용자가 직접 누른 한/영키(VK_HANGUL)를 감지하면
+//    그 시점의 포그라운드 윈도우 thread의 상태를 토글
+//  - ESC 시 그 thread의 상태가 한국어이면 SendInput VK_HANGUL로 영문 전환 + 상태 갱신
+// 처음 만나는 thread가 이미 한국어 모드면 첫 ESC는 무동작 → 한 번 한/영키 눌러 동기화.
 
 #![windows_subsystem = "windows"]
 
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::Duration;
 
 use windows::core::w;
-use windows::Win32::Foundation::{BOOL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-use windows::Win32::UI::Input::Ime::{
-    ImmGetContext, ImmGetDefaultIMEWnd, ImmReleaseContext, ImmSetOpenStatus,
-};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    VK_ESCAPE, VK_HANGUL,
+    VIRTUAL_KEY, VK_ESCAPE, VK_HANGUL,
 };
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CallNextHookEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DispatchMessageW, GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetMessageW,
-    GetWindowThreadProcessId, LoadIconW, PostQuitMessage, RegisterClassW, SendMessageTimeoutW,
-    SetForegroundWindow, SetWindowsHookExW, TrackPopupMenu, TranslateMessage, UnhookWindowsHookEx,
-    GUITHREADINFO, HHOOK, HMENU, IDI_APPLICATION, KBDLLHOOKSTRUCT, MF_STRING, MSG, SMTO_ABORTIFHUNG,
-    TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WM_COMMAND, WM_DESTROY,
-    WM_KEYDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_USER, WNDCLASSW, WS_OVERLAPPED,
+    DispatchMessageW, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+    LoadIconW, PostQuitMessage, RegisterClassW, SetForegroundWindow, SetWindowsHookExW,
+    TrackPopupMenu, TranslateMessage, UnhookWindowsHookEx, HHOOK, HMENU, IDI_APPLICATION,
+    KBDLLHOOKSTRUCT, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WH_KEYBOARD_LL,
+    WINDOW_EX_STYLE, WM_COMMAND, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP, WM_RBUTTONUP,
+    WM_SYSKEYDOWN, WM_USER, WNDCLASSW, WS_OVERLAPPED,
 };
 
-const WM_IME_CONTROL: u32 = 0x0283;
-const IMC_SETOPENSTATUS: usize = 0x0006;
-const IMC_GETOPENSTATUS: usize = 0x0005;
-
-fn dbg_log(msg: &str) {
-    use std::io::Write;
-    let path = std::env::temp_dir().join("esc-eng-ime.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let _ = writeln!(f, "[{}] {}", now, msg);
-    }
-}
+const LLKHF_INJECTED: u32 = 0x10;
 const WM_TRAYICON: u32 = WM_USER + 1;
 const IDM_EXIT: u32 = 1001;
 const TRAY_UID: u32 = 1;
 
+static STATES: OnceLock<Mutex<HashMap<u32, bool>>> = OnceLock::new();
 static HOOK: OnceLock<isize> = OnceLock::new();
 static SENDER: OnceLock<Sender<()>> = OnceLock::new();
+
+fn states() -> &'static Mutex<HashMap<u32, bool>> {
+    STATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+unsafe fn foreground_tid() -> u32 {
+    let fg = GetForegroundWindow();
+    if fg.0.is_null() {
+        return 0;
+    }
+    GetWindowThreadProcessId(fg, None)
+}
 
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         let m = wparam.0 as u32;
-        let is_down = m == WM_KEYDOWN || m == WM_SYSKEYDOWN;
-        if is_down && kb.vkCode == VK_ESCAPE.0 as u32 {
-            if let Some(tx) = SENDER.get() {
-                let _ = tx.send(());
+        if m == WM_KEYDOWN || m == WM_SYSKEYDOWN {
+            let vk = kb.vkCode;
+            let injected = (kb.flags.0 & LLKHF_INJECTED) != 0;
+
+            // 사용자가 직접 누른 한/영키이면 그 thread의 내부 상태 토글.
+            // INJECTED는 우리가 send_vk로 보낸 것이라 별도 경로에서 갱신함.
+            if !injected && vk == VK_HANGUL.0 as u32 {
+                let tid = foreground_tid();
+                if tid != 0 {
+                    let mut s = states().lock().unwrap();
+                    let v = s.entry(tid).or_insert(false);
+                    *v = !*v;
+                }
+            }
+
+            if vk == VK_ESCAPE.0 as u32 {
+                if let Some(tx) = SENDER.get() {
+                    let _ = tx.send(());
+                }
             }
         }
     }
@@ -70,72 +89,21 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
     CallNextHookEx(h, code, wparam, lparam)
 }
 
-unsafe fn force_english_ime() {
-    let fg = GetForegroundWindow();
-    if fg.0.is_null() {
-        dbg_log("force: fg=NULL");
-        return;
-    }
-
-    // 방법 1: AttachThreadInput 후, 포커스된 컨트롤(자식 윈도우)의 IME context를 얻어
-    // ImmSetOpenStatus로 직접 영문 강제. 다른 프로세스의 hImc는 본래 못 만지지만
-    // 입력 큐 attach 후엔 가능.
-    let target_tid = GetWindowThreadProcessId(fg, None);
-    let our_tid = GetCurrentThreadId();
-    let mut imc_ok = false;
-    let mut himc_addr: *mut std::ffi::c_void = std::ptr::null_mut();
-    let mut focus_hwnd_addr: *mut std::ffi::c_void = std::ptr::null_mut();
-    if target_tid != 0 {
-        let attached = if target_tid != our_tid {
-            AttachThreadInput(our_tid, target_tid, true).as_bool()
-        } else {
-            true
-        };
-        if attached {
-            // attach 후 GetGUIThreadInfo로 포커스 hwnd 얻기.
-            let mut info: GUITHREADINFO = std::mem::zeroed();
-            info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
-            let focus_hwnd = if GetGUIThreadInfo(target_tid, &mut info).is_ok()
-                && !info.hwndFocus.0.is_null()
-            {
-                info.hwndFocus
-            } else {
-                fg
-            };
-            focus_hwnd_addr = focus_hwnd.0;
-            let himc = ImmGetContext(focus_hwnd);
-            himc_addr = himc.0;
-            if !himc.0.is_null() {
-                imc_ok = ImmSetOpenStatus(himc, BOOL(0)).as_bool();
-                let _ = ImmReleaseContext(focus_hwnd, himc);
-            }
-            if target_tid != our_tid {
-                let _ = AttachThreadInput(our_tid, target_tid, false);
-            }
-        }
-    }
-
-    // 방법 2: default IME 윈도우에 WM_IME_CONTROL 송신 (백업).
-    let ime = ImmGetDefaultIMEWnd(fg);
-    let mut send_lresult: isize = 0;
-    let mut send_result: usize = 0;
-    if !ime.0.is_null() {
-        let r = SendMessageTimeoutW(
-            ime,
-            WM_IME_CONTROL,
-            WPARAM(IMC_SETOPENSTATUS),
-            LPARAM(0),
-            SMTO_ABORTIFHUNG,
-            100,
-            Some(&mut send_result as *mut usize),
-        );
-        send_lresult = r.0;
-    }
-
-    dbg_log(&format!(
-        "force: fg={:p} tid={} our_tid={} focus={:p} himc={:p} imc_ok={} ime={:p} lresult={} result={}",
-        fg.0, target_tid, our_tid, focus_hwnd_addr, himc_addr, imc_ok, ime.0, send_lresult, send_result
-    ));
+unsafe fn send_vk(vk: VIRTUAL_KEY) {
+    let mut inputs: [INPUT; 2] = std::mem::zeroed();
+    inputs[0].r#type = INPUT_KEYBOARD;
+    inputs[0].Anonymous = INPUT_0 {
+        ki: KEYBDINPUT {
+            wVk: vk,
+            wScan: 0,
+            dwFlags: KEYBD_EVENT_FLAGS(0),
+            time: 0,
+            dwExtraInfo: 0,
+        },
+    };
+    inputs[1] = inputs[0];
+    inputs[1].Anonymous.ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
 }
 
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -172,7 +140,6 @@ unsafe fn show_context_menu(hwnd: HWND) {
         Err(_) => return,
     };
     let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT as usize, w!("종료(&X)"));
-    // 메뉴 밖을 클릭했을 때 사라지려면 포그라운드여야 함.
     let _ = SetForegroundWindow(hwnd);
     let _ = TrackPopupMenu(
         menu,
@@ -214,14 +181,30 @@ fn main() -> windows::core::Result<()> {
     let (tx, rx) = mpsc::channel::<()>();
     let _ = SENDER.set(tx);
 
-    dbg_log("main: starting");
     thread::spawn(move || loop {
         if rx.recv().is_err() {
             break;
         }
+        // ESC 연타 시 짧은 디바운스
         while rx.recv_timeout(Duration::from_millis(5)).is_ok() {}
-        dbg_log("worker: ESC received");
-        unsafe { force_english_ime() };
+
+        let tid = unsafe { foreground_tid() };
+        if tid == 0 {
+            continue;
+        }
+        let needs_send = {
+            let mut s = states().lock().unwrap();
+            let v = s.entry(tid).or_insert(false);
+            if *v {
+                *v = false;
+                true
+            } else {
+                false
+            }
+        };
+        if needs_send {
+            unsafe { send_vk(VK_HANGUL) };
+        }
     });
 
     unsafe {
@@ -254,7 +237,6 @@ fn main() -> windows::core::Result<()> {
 
         let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), hinst, 0)?;
         let _ = HOOK.set(hook.0 as isize);
-        dbg_log(&format!("main: hook installed = {:p}", hook.0));
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
