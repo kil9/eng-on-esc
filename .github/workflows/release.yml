@@ -32,15 +32,15 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item target\release\esc-eng-ime.exe dist\esc-eng-ime.exe
-          $hash = Get-FileHash dist\esc-eng-ime.exe -Algorithm SHA256
-          "{0}  esc-eng-ime.exe" -f $hash.Hash.ToLower() | Out-File -FilePath dist\SHA256SUMS.txt -Encoding ascii
+          Copy-Item target\release\eng-on-esc.exe dist\eng-on-esc.exe
+          $hash = Get-FileHash dist\eng-on-esc.exe -Algorithm SHA256
+          "{0}  eng-on-esc.exe" -f $hash.Hash.ToLower() | Out-File -FilePath dist\SHA256SUMS.txt -Encoding ascii
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/esc-eng-ime.exe
+            dist/eng-on-esc.exe
             dist/SHA256SUMS.txt
           draft: false
           prerelease: false

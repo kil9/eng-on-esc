@@ -49,10 +49,10 @@ BEGIN
             VALUE "CompanyName",      "kil9"
             VALUE "FileDescription",  "ESC key forces Korean IME to English mode"
             VALUE "FileVersion",      "{dotted}"
-            VALUE "InternalName",     "esc-eng-ime"
+            VALUE "InternalName",     "eng-on-esc"
             VALUE "LegalCopyright",   "Copyright (C) 2026 kil9"
-            VALUE "OriginalFilename", "esc-eng-ime.exe"
-            VALUE "ProductName",      "esc-eng-ime"
+            VALUE "OriginalFilename", "eng-on-esc.exe"
+            VALUE "ProductName",      "eng-on-esc"
             VALUE "ProductVersion",   "{dotted}"
         END
     END

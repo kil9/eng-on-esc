@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-08
+
+### Changed
+- 프로젝트 이름을 `esc-eng-ime` 에서 `eng-on-esc` 로 변경. 산출물 파일명도 `eng-on-esc.exe` 로 바뀐다.
+- Cargo 패키지명, 윈도우 클래스명, VERSIONINFO 메타데이터(`InternalName`/`OriginalFilename`/`ProductName`), GitHub Actions 릴리즈 워크플로 산출물명, 문서 일괄 갱신.
+
 ## [0.1.0] - 2026-05-08
 
 첫 공개 릴리즈. ESC 키로 한글 IME 를 영문 모드로 전환하는 핵심 동작이 안정화됨.
@@ -25,5 +31,6 @@
 - 마우스 작업표시줄 IME 토글, `Win+Space` 입력 언어 변경 등 키보드 외 경로는 추적 불가.
 - 코드 사이닝이 적용되지 않은 unsigned 바이너리이므로 처음 실행 시 SmartScreen 경고가 표시될 수 있다.
 
-[Unreleased]: https://github.com/kil9/eng-on-esc/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kil9/eng-on-esc/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.1.0

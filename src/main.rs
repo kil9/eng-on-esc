@@ -219,7 +219,7 @@ fn main() -> windows::core::Result<()> {
         let hmodule = GetModuleHandleW(None)?;
         let hinst = HINSTANCE(hmodule.0);
 
-        let class_name = w!("EscEngImeTrayWnd");
+        let class_name = w!("EngOnEscTrayWnd");
         let mut wc: WNDCLASSW = std::mem::zeroed();
         wc.lpfnWndProc = Some(wnd_proc);
         wc.hInstance = hinst;
@@ -229,7 +229,7 @@ fn main() -> windows::core::Result<()> {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             class_name,
-            w!("esc-eng-ime"),
+            w!("eng-on-esc"),
             WS_OVERLAPPED,
             0,
             0,

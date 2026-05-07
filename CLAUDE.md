@@ -88,7 +88,7 @@ OS의 IME API(`WM_IME_CONTROL/IMC_SETOPENSTATUS`, `VK_IME_OFF`, `ImmSetOpenStatu
 ## 주의사항
 
 - `#![windows_subsystem = "windows"]` — 콘솔 창 없이 실행된다. `println!` 로는 디버깅이 불가능하다.
-- 디버깅이 필요하면 `dbg_log` 헬퍼를 임시로 추가해 `%TEMP%\esc-eng-ime.log` 같은 경로로 append 하면 된다 (현재 코드에는 포함되어 있지 않음).
+- 디버깅이 필요하면 `dbg_log` 헬퍼를 임시로 추가해 `%TEMP%\eng-on-esc.log` 같은 경로로 append 하면 된다 (현재 코드에는 포함되어 있지 않음).
 - 글로벌 키보드 후킹은 안티바이러스/EDR 에서 의심 행위로 분류될 수 있다. 배포 시 코드 사이닝 고려.
 - 후킹 콜백은 OS 메시지 루프에서 동기적으로 실행되므로 무거운 작업은 워커 스레드로 위임해야 한다 (현재 구조 유지 필수). LL hook 안에서 `Mutex::lock` 을 짧게 잡는 것은 허용되지만 길어지면 시스템 입력이 느려진다.
 - `STATES` 의 키는 thread ID 라 thread 가 종료되어도 entry 가 그대로 남는다. 장기 실행 시 메모리 누수 가능 — 청소 로직은 미구현.
