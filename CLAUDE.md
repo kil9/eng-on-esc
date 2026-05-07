@@ -79,11 +79,20 @@ OS의 IME API(`WM_IME_CONTROL/IMC_SETOPENSTATUS`, `VK_IME_OFF`, `ImmSetOpenStatu
 ### 트레이 아이콘
 
 - `Shell_NotifyIconW(NIM_ADD/NIM_DELETE)` 로 아이콘 등록/해제.
-- 좌/우 클릭 모두 `show_context_menu` 로 종료 메뉴(`TrackPopupMenu`).
+- 좌/우 클릭 모두 `show_context_menu` 로 컨텍스트 메뉴(`TrackPopupMenu`) 표시.
+- 메뉴 항목: ① 시작 시 자동 실행(`IDM_TOGGLE_AUTOSTART`, 등록 상태에 따라 `MF_CHECKED`/`MF_UNCHECKED`), ② 종료(`IDM_EXIT`).
 - 아이콘은 `build.rs` 가 `CARGO_PKG_VERSION` 으로 ICON+VERSIONINFO 통합 `.rc` 를 OUT_DIR 에 자동 생성한 뒤 `embed-resource` 가 컴파일해 exe 에 임베드한다. 런타임에는 `LoadIconW(hinst, MAKEINTRESOURCE(IDI_TRAY_ICON=1))` 로 로드. 실패 시 `LoadIconW(IDI_APPLICATION)` 으로 폴백.
 - 아이콘 디자인은 ESC 키 캡 모양. `tools/generate-icon.ps1` 로 재생성 가능 (System.Drawing). 16/24/32/48/64/256 PX 멀티 사이즈 PNG 를 ICO 컨테이너에 패킹.
 - 아이콘을 수정한 뒤에는 `assets/icon.ico` 의 mtime 이 바뀌면 `build.rs` 가 다시 돌아 OUT_DIR 의 `.rc` 도 재생성된다 (`cargo:rerun-if-changed=assets/icon.ico` 로 추적).
 - VERSIONINFO(파일 속성 메타데이터)도 같은 `.rc` 에 함께 들어간다. CompanyName/LegalCopyright 는 `kil9` / `Copyright (C) 2026 kil9`. `Cargo.toml` 의 `version` 만 갱신하면 FILEVERSION/ProductVersion 등이 자동으로 따라온다.
+
+### 자동 시작 (HKCU\Run)
+
+- 메뉴 토글이 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 의 `eng-on-esc` 값을 추가/삭제한다. 키 존재 여부 = 등록 상태.
+- 등록 시 값에는 `GetModuleFileNameW` 로 얻은 현재 exe 의 절대 경로를 큰따옴표로 감싸 저장 (`"C:\path\to\eng-on-esc.exe"`). 경로에 공백이 있어도 안전.
+- HKCU 라 관리자 권한 불필요. exe 를 옮긴 경우 사용자가 메뉴를 OFF→ON 다시 토글해 새 경로로 갱신.
+- 등록/해제는 `RegOpenKeyExW(KEY_QUERY_VALUE | KEY_SET_VALUE)` + `RegSetValueExW(REG_SZ)` / `RegDeleteValueW`. Run 키 자체는 항상 존재한다고 가정.
+- 함수: `autostart_is_enabled` / `autostart_enable` / `autostart_disable`. 메뉴는 `WM_COMMAND` → `IDM_TOGGLE_AUTOSTART` 분기에서 호출.
 
 ## 주의사항
 
@@ -104,7 +113,7 @@ OS의 IME API(`WM_IME_CONTROL/IMC_SETOPENSTATUS`, `VK_IME_OFF`, `ImmSetOpenStatu
 ## 의존성
 
 - `windows = 0.58` — Win32 API 바인딩
-  - 사용 features: `Win32_Foundation`, `Win32_UI_WindowsAndMessaging`, `Win32_UI_Input_KeyboardAndMouse`, `Win32_UI_Shell`, `Win32_System_LibraryLoader`, `Win32_Graphics_Gdi`
+  - 사용 features: `Win32_Foundation`, `Win32_UI_WindowsAndMessaging`, `Win32_UI_Input_KeyboardAndMouse`, `Win32_UI_Shell`, `Win32_System_LibraryLoader`, `Win32_System_Registry`, `Win32_Graphics_Gdi`
 - `embed-resource = 2` (build-dependency) — `build.rs` 가 OUT_DIR 에 자동 생성한 `.rc` (ICON + VERSIONINFO) 를 MSVC `rc.exe` / GNU `windres` 로 컴파일해 .res/.coff 형태로 링커에 넘겨 exe 에 리소스 임베드. MSVC 툴체인을 쓸 경우 Visual Studio Build Tools 의 C++ 도구셋이 필요.
 
 ## 보안 주의사항

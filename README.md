@@ -57,15 +57,13 @@ target\release\eng-on-esc.exe
 pwsh -File tools/generate-icon.ps1
 ```
 
-### 자동 시작 (선택)
+### 자동 시작
 
-시작 프로그램 폴더에 `.exe` 의 바로가기를 두면 부팅 시 자동 실행된다.
+트레이 아이콘을 우클릭(또는 좌클릭)하면 메뉴가 뜬다. **시작 시 자동 실행** 항목을 한 번 누르면 Windows 부팅 시 자동 실행이 켜지고, 다시 누르면 꺼진다. 켜진 상태는 메뉴 항목 앞 체크 표시(✓)로 보인다.
 
-```
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-```
+내부적으로는 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 에 `eng-on-esc` 항목을 추가/삭제하는 방식이라 관리자 권한이 필요 없고, 작업 관리자의 "시작프로그램" 탭에도 그대로 표시된다.
 
-`Win+R` → `shell:startup` 으로 해당 폴더를 바로 열 수 있다.
+> exe 를 다른 폴더로 옮긴 경우, 메뉴를 한 번 OFF → ON 다시 토글하면 새 경로로 갱신된다.
 
 ## 기능
 
@@ -73,7 +71,7 @@ pwsh -File tools/generate-icon.ps1
 - ESC 본래 동작은 그대로 통과
 - 창(thread)별로 IME 상태를 독립 추적 — 창 전환 후에도 의도대로 동작
 - 시스템 트레이 아이콘으로 상주
-- 트레이 아이콘 좌/우 클릭 → 종료 메뉴
+- 트레이 메뉴 — 시작 시 자동 실행 토글 / 종료
 
 ## 동작 방식과 한계
 

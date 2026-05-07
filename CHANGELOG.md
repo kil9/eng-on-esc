@@ -7,6 +7,9 @@
 
 ## [Unreleased]
 
+### Added
+- 트레이 메뉴에 **시작 시 자동 실행** 토글 추가 (M2). 클릭하면 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 의 `eng-on-esc` 값이 추가/삭제되며, 메뉴 항목 앞에 체크 표시(`MF_CHECKED`)로 현재 상태가 보인다. 관리자 권한 불필요.
+
 ## [0.2.0] - 2026-05-08
 
 ### Changed

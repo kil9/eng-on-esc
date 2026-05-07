@@ -22,8 +22,12 @@ use std::thread;
 use std::time::Duration;
 
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::Foundation::{ERROR_SUCCESS, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW};
+use windows::Win32::System::Registry::{
+    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+    HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_ESCAPE, VK_HANGUL,
@@ -36,14 +40,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
     LoadIconW, PostQuitMessage, RegisterClassW, SetForegroundWindow, SetWindowsHookExW,
     TrackPopupMenu, TranslateMessage, UnhookWindowsHookEx, HHOOK, HMENU, IDI_APPLICATION,
-    KBDLLHOOKSTRUCT, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WH_KEYBOARD_LL,
-    WINDOW_EX_STYLE, WM_COMMAND, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP, WM_RBUTTONUP,
-    WM_SYSKEYDOWN, WM_USER, WNDCLASSW, WS_OVERLAPPED,
+    KBDLLHOOKSTRUCT, MF_CHECKED, MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MSG,
+    TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WM_COMMAND, WM_DESTROY,
+    WM_KEYDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_USER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 const LLKHF_INJECTED: u32 = 0x10;
 const WM_TRAYICON: u32 = WM_USER + 1;
 const IDM_EXIT: u32 = 1001;
+const IDM_TOGGLE_AUTOSTART: u32 = 1002;
 const TRAY_UID: u32 = 1;
 // build.rs 가 임베드한 ICON 리소스 ID (assets/icon.rc 의 `1 ICON ...`).
 const IDI_TRAY_ICON: u16 = 1;
@@ -111,6 +116,99 @@ unsafe fn send_vk(vk: VIRTUAL_KEY) {
     SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
 }
 
+// 자동 시작 등록: HKCU\Software\Microsoft\Windows\CurrentVersion\Run\eng-on-esc
+// 값에 현재 exe 의 절대 경로를 큰따옴표로 감싸 저장. 키 존재 여부로 등록 상태 판정.
+// HKCU 라 관리자 권한 불필요. 사용자가 exe 를 다른 위치로 옮긴 경우 토글 OFF→ON 으로 갱신.
+
+const AUTOSTART_SUBKEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+const AUTOSTART_VALUE: PCWSTR = w!("eng-on-esc");
+
+unsafe fn current_exe_path_wide() -> Option<Vec<u16>> {
+    let mut buf = [0u16; 1024];
+    let len = GetModuleFileNameW(HMODULE::default(), &mut buf);
+    if len == 0 || (len as usize) >= buf.len() {
+        return None;
+    }
+    Some(buf[..len as usize].to_vec())
+}
+
+unsafe fn autostart_is_enabled() -> bool {
+    let mut hkey = HKEY::default();
+    let open = RegOpenKeyExW(
+        HKEY_CURRENT_USER,
+        AUTOSTART_SUBKEY,
+        0,
+        KEY_QUERY_VALUE,
+        &mut hkey,
+    );
+    if open != ERROR_SUCCESS {
+        return false;
+    }
+    let mut size: u32 = 0;
+    let q = RegQueryValueExW(
+        hkey,
+        AUTOSTART_VALUE,
+        None,
+        None,
+        None,
+        Some(&mut size),
+    );
+    let _ = RegCloseKey(hkey);
+    q == ERROR_SUCCESS
+}
+
+unsafe fn autostart_enable() -> bool {
+    let exe = match current_exe_path_wide() {
+        Some(p) => p,
+        None => return false,
+    };
+    // "C:\path\to\exe" 형태로 따옴표 감싸기. 경로에 공백이 포함되어도 안전하게 시작되도록.
+    let mut quoted: Vec<u16> = Vec::with_capacity(exe.len() + 3);
+    quoted.push(b'"' as u16);
+    quoted.extend_from_slice(&exe);
+    quoted.push(b'"' as u16);
+    quoted.push(0u16);
+
+    // HKCU\...\Run 키는 항상 존재하므로 RegOpenKeyExW 로 충분.
+    let mut hkey = HKEY::default();
+    let open = RegOpenKeyExW(
+        HKEY_CURRENT_USER,
+        AUTOSTART_SUBKEY,
+        0,
+        KEY_SET_VALUE,
+        &mut hkey,
+    );
+    if open != ERROR_SUCCESS {
+        return false;
+    }
+    let bytes: &[u8] = std::slice::from_raw_parts(
+        quoted.as_ptr() as *const u8,
+        quoted.len() * std::mem::size_of::<u16>(),
+    );
+    let res = RegSetValueExW(hkey, AUTOSTART_VALUE, 0, REG_SZ, Some(bytes));
+    let _ = RegCloseKey(hkey);
+    res == ERROR_SUCCESS
+}
+
+unsafe fn autostart_disable() -> bool {
+    let mut hkey = HKEY::default();
+    let open = RegOpenKeyExW(
+        HKEY_CURRENT_USER,
+        AUTOSTART_SUBKEY,
+        0,
+        KEY_SET_VALUE,
+        &mut hkey,
+    );
+    if open != ERROR_SUCCESS {
+        // 키가 없으면 이미 해제 상태로 본다.
+        return true;
+    }
+    let res = RegDeleteValueW(hkey, AUTOSTART_VALUE);
+    let _ = RegCloseKey(hkey);
+    // 이미 값이 없을 수도 있으니 그것도 성공 취급.
+    res == ERROR_SUCCESS || res.0 == 2 /* ERROR_FILE_NOT_FOUND */
+}
+
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if msg == WM_TRAYICON {
         let event = (lparam.0 as u32) & 0xFFFF;
@@ -125,6 +223,12 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             if id == IDM_EXIT {
                 remove_tray(hwnd);
                 PostQuitMessage(0);
+            } else if id == IDM_TOGGLE_AUTOSTART {
+                if autostart_is_enabled() {
+                    let _ = autostart_disable();
+                } else {
+                    let _ = autostart_enable();
+                }
             }
             LRESULT(0)
         }
@@ -144,6 +248,14 @@ unsafe fn show_context_menu(hwnd: HWND) {
         Ok(m) => m,
         Err(_) => return,
     };
+    let check = if autostart_is_enabled() { MF_CHECKED } else { MF_UNCHECKED };
+    let _ = AppendMenuW(
+        menu,
+        MF_STRING | check,
+        IDM_TOGGLE_AUTOSTART as usize,
+        w!("시작 시 자동 실행(&S)"),
+    );
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT as usize, w!("종료(&X)"));
     let _ = SetForegroundWindow(hwnd);
     let _ = TrackPopupMenu(
