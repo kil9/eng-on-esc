@@ -3,12 +3,15 @@
 // 트레이 아이콘에서 좌/우클릭으로 종료 메뉴.
 //
 // IME 상태는 OS API에 의존하지 않고 자체 상태 머신으로 추적.
-// Windows IME 상태는 thread-local이므로 thread ID 별로 분리 추적:
-//  - 새로 만난 thread는 영문이라 가정
-//  - LL hook이 사용자가 직접 누른 한/영키(VK_HANGUL)를 감지하면
-//    그 시점의 포그라운드 윈도우 thread의 상태를 토글
-//  - ESC 시 그 thread의 상태가 한국어이면 SendInput VK_HANGUL로 영문 전환 + 상태 갱신
-// 처음 만나는 thread가 이미 한국어 모드면 첫 ESC는 무동작 → 한 번 한/영키 눌러 동기화.
+// Windows 11 modern Microsoft Korean IME 환경에서 IMC_SETOPENSTATUS,
+// VK_IME_OFF, ImmGetConversionStatus 등을 시도해 봤으나 신뢰할 수 있는
+// 응답을 주지 않음을 확인. 따라서 LL hook 으로 사용자가 직접 누른 한/영키
+// (VK_HANGUL) 만을 추적하고, ESC 시 그 thread 의 자체 상태가 한국어이면
+// SendInput 으로 한/영 토글을 보내 영문으로 전환한다.
+//
+// Windows IME 상태는 thread-local 이라 thread ID 별로 분리 추적한다.
+// 처음 만나는 thread 또는 키보드 외 경로(마우스, Win+Space)로 모드가 바뀐
+// thread 는 추적이 어긋날 수 있다 — 한 번 한/영키 토글로 동기화한다.
 
 #![windows_subsystem = "windows"]
 
