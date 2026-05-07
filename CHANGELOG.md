@@ -7,8 +7,13 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-08
+
 ### Added
 - 트레이 메뉴에 **시작 시 자동 실행** 토글 추가 (M2). 클릭하면 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 의 `eng-on-esc` 값이 추가/삭제되며, 메뉴 항목 앞에 체크 표시(`MF_CHECKED`)로 현재 상태가 보인다. 관리자 권한 불필요.
+
+### Changed
+- `README.md` 를 사용자 관점으로 재구성. 빌드/cargo 명령·`embed-resource`·`HKCU\Run` 같은 내부 디테일은 걷어내고 다운로드 → SmartScreen 안내 → 사용법 흐름으로 단순화. SmartScreen 안내에 "추가 정보 → 실행" 클릭 순서와 "게시자: 알 수 없음" 표시가 정상이라는 설명 추가.
 
 ## [0.2.0] - 2026-05-08
 
@@ -34,6 +39,7 @@
 - 마우스 작업표시줄 IME 토글, `Win+Space` 입력 언어 변경 등 키보드 외 경로는 추적 불가.
 - 코드 사이닝이 적용되지 않은 unsigned 바이너리이므로 처음 실행 시 SmartScreen 경고가 표시될 수 있다.
 
-[Unreleased]: https://github.com/kil9/eng-on-esc/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kil9/eng-on-esc/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.1.0
