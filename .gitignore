@@ -1,5 +1,7 @@
 # Rust
 /target
+windows/target
+macos/target
 **/*.rs.bk
 
 # Editor / IDE

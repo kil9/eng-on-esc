@@ -1,0 +1,18 @@
+[package]
+name = "eng-on-esc"
+version = "0.1.0"
+edition = "2021"
+
+# macOS 전용 빌드.
+# rdev::grab 이 CGEventTap 을 사용하므로 Accessibility 권한이 필요하다.
+#   시스템 환경설정 → 개인 정보 보호 및 보안 → 손쉬운 사용 → 이 앱 허용
+
+[dependencies]
+rdev = "0.5"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

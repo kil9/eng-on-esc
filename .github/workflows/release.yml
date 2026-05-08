@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build and publish Windows release
+  build-windows:
+    name: Build Windows release
     runs-on: windows-latest
 
     steps:
@@ -24,24 +24,85 @@ jobs:
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
 
       - name: Build release binary
+        working-directory: windows
         run: cargo build --release --locked
 
       - name: Stage release artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item target\release\eng-on-esc.exe dist\eng-on-esc.exe
-          $hash = Get-FileHash dist\eng-on-esc.exe -Algorithm SHA256
-          "{0}  eng-on-esc.exe" -f $hash.Hash.ToLower() | Out-File -FilePath dist\SHA256SUMS.txt -Encoding ascii
+          Copy-Item windows\target\release\eng-on-esc.exe dist\eng-on-esc-windows.exe
+          $hash = Get-FileHash dist\eng-on-esc-windows.exe -Algorithm SHA256
+          "{0}  eng-on-esc-windows.exe" -f $hash.Hash.ToLower() | Out-File -FilePath dist\SHA256SUMS-windows.txt -Encoding ascii
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/
+
+  build-macos:
+    name: Build macOS release
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: macos
+
+      - name: Build release binary
+        working-directory: macos
+        run: cargo build --release --locked
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p dist
+          cp macos/target/release/eng-on-esc dist/eng-on-esc-macos
+          shasum -a 256 dist/eng-on-esc-macos | sed 's|dist/||' > dist/SHA256SUMS-macos.txt
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/eng-on-esc.exe
-            dist/SHA256SUMS.txt
+            dist/eng-on-esc-windows.exe
+            dist/eng-on-esc-macos
+            dist/SHA256SUMS-windows.txt
+            dist/SHA256SUMS-macos.txt
           draft: false
           prerelease: false
           generate_release_notes: true
