@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-08
+
+### Added
+- **macOS 지원** (M3). `rdev` 기반 글로벌 키보드 후킹(CGEventTap), Caps Lock 자체 상태 머신으로 한국어 IME 추적. ESC 입력 시 한국어 모드이면 Caps Lock 시뮬레이션으로 영문 전환.
+- macOS 메뉴바 아이콘 상주 (`tray-icon 0.19` + `tao 0.30`). 종료 메뉴, Dock 아이콘 없는 메뉴바 전용 앱(`NSApplicationActivationPolicyAccessory`).
+- macOS 시작 시 자동 실행 토글. `~/Library/LaunchAgents/io.github.kil9.eng-on-esc.plist` 생성/삭제, 메뉴 항목 체크 표시로 상태 노출.
+- GitHub Releases 에 `eng-on-esc-macos` 바이너리 포함 (`SHA256SUMS-macos.txt` 함께 업로드).
+
+### Changed
+- `README.md` 에 macOS 설치(Gatekeeper/손쉬운 사용 권한 안내) 및 사용법 섹션 추가.
+
 ## [0.3.0] - 2026-05-08
 
 ### Added
@@ -39,7 +50,8 @@
 - 마우스 작업표시줄 IME 토글, `Win+Space` 입력 언어 변경 등 키보드 외 경로는 추적 불가.
 - 코드 사이닝이 적용되지 않은 unsigned 바이너리이므로 처음 실행 시 SmartScreen 경고가 표시될 수 있다.
 
-[Unreleased]: https://github.com/kil9/eng-on-esc/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kil9/eng-on-esc/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.4.0
 [0.3.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kil9/eng-on-esc/releases/tag/v0.1.0

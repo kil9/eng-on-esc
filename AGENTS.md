@@ -23,9 +23,10 @@ Rust로 작성한 상주 유틸리티. ESC 키를 누르면 한글 IME를 영문
 │   └── tools/
 │       └── generate-icon.ps1   # icon.ico 재생성 스크립트
 ├── macos/              # macOS 전용 Rust 프로젝트
-│   ├── Cargo.toml      # rdev (CGEventTap 기반 글로벌 후킹)
+│   ├── Cargo.toml      # rdev + tray-icon + tao + core-foundation
+│   ├── Cargo.lock
 │   └── src/
-│       └── main.rs     # 키보드 후킹 + 상태 머신 (tray TODO)
+│       └── main.rs     # 키보드 후킹, 메뉴바 아이콘, IME 제어, LaunchAgent 자동 시작
 ├── .github/
 │   └── workflows/
 │       └── release.yml # v* 태그 → Windows/macOS 병렬 빌드 → GitHub Releases
@@ -141,11 +142,26 @@ OS의 IME API(`WM_IME_CONTROL/IMC_SETOPENSTATUS`, `VK_IME_OFF`, `ImmSetOpenStatu
 - 마우스/입력 소스 직접 변경 등은 추적되지 않는다.
 - Caps Lock 을 일반 대소문자 토글로 사용하는 환경(한국어 IME 미설치 Mac)에는 맞지 않는다.
 
-### 트레이 (TODO)
+### 메뉴바 아이콘
 
-- `tray-icon` + `tao` 로 `NSStatusItem` 메뉴바 상주 예정.
-- tao 이벤트 루프가 메인 스레드를 점유해야 하므로 `grab` 은 별도 스레드로 이동 필요.
-- 자동 시작: `~/Library/LaunchAgents/io.github.kil9.eng-on-esc.plist` 생성/삭제 예정.
+- `tray-icon 0.19` + `tao 0.30` 으로 `NSStatusItem` 메뉴바 상주.
+- `grab` 은 백그라운드 스레드, 메인 스레드는 `EventLoop::run` 점유 (tao 제약).
+- `EventLoopExtMacOS::set_activation_policy(ActivationPolicy::Accessory)` 로 Dock 아이콘 숨김 — 메뉴바 전용 앱.
+- 메뉴 항목: ① 시작 시 자동 실행(`CheckMenuItem`, 토글 시 체크 갱신), ② 구분선, ③ 종료(`MenuItem`).
+- 아이콘은 코드로 22×22 RGBA(원형 검정 마스크)를 생성하고 `with_icon_as_template(true)` 로 다크/라이트 모드에 맞춰 시스템이 색상 재지정.
+- `TrayIconBuilder` 는 NSApplication 이 초기화된 뒤에만 동작하므로 `EventLoopBuilder::new().build()` 호출 이후에 만든다.
+
+### Accessibility 권한 확인
+
+- 시작 시 `AXIsProcessTrustedWithOptions` 를 `kAXTrustedCheckOptionPrompt=true` 로 호출해 권한 요청 다이얼로그를 띄우고, 미승인이면 즉시 종료.
+- `core-foundation` crate 로 CFDictionary 를 구성, `ApplicationServices` 프레임워크 함수를 직접 link.
+
+### 자동 시작 (LaunchAgent)
+
+- 메뉴 토글이 `~/Library/LaunchAgents/io.github.kil9.eng-on-esc.plist` 를 생성/삭제. 파일 존재 = 등록 상태.
+- plist 내용: `Label=io.github.kil9.eng-on-esc`, `ProgramArguments=[<현재 exe 경로>]`, `RunAtLoad=true`. exe 경로는 `std::env::current_exe()` 로 결정.
+- 함수: `autostart_is_enabled` / `autostart_enable` / `autostart_disable`. 메뉴는 `MenuEvent::receiver().try_recv()` 분기에서 호출.
+- 바이너리를 옮긴 경우 메뉴를 OFF→ON 다시 토글해 새 경로로 갱신.
 
 ## 주의사항
 
@@ -158,9 +174,10 @@ OS의 IME API(`WM_IME_CONTROL/IMC_SETOPENSTATUS`, `VK_IME_OFF`, `ImmSetOpenStatu
 
 ### macOS
 
-- `rdev::grab` 은 Accessibility(손쉬운 사용) 권한 없이는 실행되지 않는다.
+- `rdev::grab` 은 Accessibility(손쉬운 사용) 권한 없이는 실행되지 않는다. `unstable_grab` 피처가 필요하다.
 - `grab` 은 호출 스레드를 블로킹하며 내부적으로 CGEventTap + CFRunLoop 를 실행한다.
-- 트레이 구현 시 tao 이벤트 루프는 반드시 메인 스레드에서 실행해야 한다.
+- tao 이벤트 루프는 반드시 메인 스레드에서 실행. `grab` 은 백그라운드 스레드로 분리되어 있다.
+- 콘솔이 없는 배포 환경에서 `eprintln!` 출력은 보이지 않는다. 디버깅 시 파일 로그 헬퍼 임시 추가.
 
 ### 공통
 
@@ -185,7 +202,10 @@ OS의 IME API(`WM_IME_CONTROL/IMC_SETOPENSTATUS`, `VK_IME_OFF`, `ImmSetOpenStatu
 
 ### macOS (`macos/Cargo.toml`)
 
-- `rdev = 0.5` — 크로스 플랫폼 글로벌 키보드 후킹. macOS 에서는 CGEventTap 기반.
+- `rdev = 0.5` (features: `unstable_grab`) — 크로스 플랫폼 글로벌 키보드 후킹. macOS 에서는 CGEventTap 기반. `grab` 사용에 unstable 피처가 필요.
+- `tray-icon = 0.19` — `NSStatusItem` 메뉴바 아이콘.
+- `tao = 0.30` — 이벤트 루프(NSApplication). `EventLoopExtMacOS` 로 ActivationPolicy 설정.
+- `core-foundation = 0.10` — `AXIsProcessTrustedWithOptions` 호출용 CFDictionary 구성.
 
 ## 개발 환경
 
